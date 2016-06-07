@@ -1,0 +1,386 @@
+Using the mysql get the cases that we want to analyse and get the cases from the database
+```{r}
+library(RMySQL)
+mydb = dbConnect(MySQL(), user='root', password='', dbname='upton', host='localhost')
+
+#this is the subset 
+subcases<-dbGetQuery(mydb, "SELECT * FROM `tokenizedcases`")
+
+```
+perform the basic cleanup on the data 
+
+```{r}
+txt=subcases$case
+txt <- gsub("'", "", txt)  # remove apostrophes
+#txt <- gsub("[[:punct:]]", " ", txt)  # replace punctuation with space
+txt <- gsub("[[:cntrl:]]", " ", txt)  # replace control characters with space
+txt <- gsub("^[[:space:]]+", "", txt) # remove whitespace at beginning of documents
+txt <- gsub("[[:space:]]+$", "", txt) # remove whitespace at end of documents
+
+
+
+```
+
+Helper functions for calculating factors
+
+```{r}
+
+#function to check the frequency of the words in the matrix
+getFrequencyOfTermsInMatrix=function(mat)
+{
+  freqWords <- colSums(mat)
+  ord <- order(freqWords,decreasing = TRUE)
+  names(freqWords[ord])
+  hist(freqWords[ord])
+  print(head(freqWords[ord],50))
+
+}
+
+#get the frequency of the term in the given matrix
+getFrequencyForTerm=function(term,mat)
+{
+  return(sum(mat[,term]))
+
+}
+
+
+#calculate the idf for a term
+getIDFForTerm=function(term,mat)
+{
+    #mat=as.matrix(dtm)
+    N=nrow(mat)
+    df=length(which(mat[,term]>0))
+    idf=log2(N/df)
+    return(idf)
+}
+
+#calculate the term normalization
+getTermNormalization=function(term,mat)
+{
+  return(log2(1+log2(1+getFrequencyForTerm(term,mat))))
+}
+
+#print the distribution in the matrix of the term as per its normalized tf*idf*doclength
+#this will tell how important this term is in the various documents. most of the time it will be 0
+#the weight value will tell what is the tf*idf*docNormalizedLength value is
+getTermWeightDistributionInMatrix=function(term,mat)
+{
+  print(table(mat[,term]))
+  hist(mat[,term])
+  #basically check how many times 0 
+  percentageOccurence=(1-(length(which(mat[,term]==0))/nrow(mat)))*100
+  print(percentageOccurence)
+}
+
+#Function to get the length of the vectors given the matrix
+norm_eucl <- function(mat) {
+    
+    denom=apply(mat, MARGIN=1, FUN=function(x) sum(x^2)^.5)
+    #print(denom)
+}
+
+#this will give the document length of a particular document (row) 
+norm_doc_length <- function(docNum,mat) {
+    
+    return(sum(mat[docNum,]^2)^.5)
+}
+
+#tf-idf log2(1+log2(x+1))*idf
+myWeightTfIDf<-function(mat)
+{
+  #mat=as.matrix(dtm)
+  #get the term normalized freq
+  tf=log2(1+log2(1+mat))
+  #idf
+  #N=nrow(m)
+  #apply(mat, MARGIN=1, FUN=getIDFForTerm(x))
+  
+  #df=length(which(m[,term]>0))
+  #idf=log2(N/df)
+  cc<-colnames(tf)
+  idfs<-sapply(cc,getIDFForTerm,mat)
+  
+  numRows=nrow(tf)
+  numCol=ncol(tf)
+  for(i in 1:numRows)
+  {
+    for(j in 1:numCol)
+    {
+      if(tf[i,j]>0)
+        tf[i,j]=tf[i,j]*idfs[j]
+        
+    }
+  }
+  
+  return(tf)
+}
+
+
+```
+ 
+
+
+now prepare the corpus
+
+```{r}
+library(tm)
+library(SnowballC)
+library(Matrix)
+library(lda)
+library(LDAvis)
+library(servr)
+library(fpc)
+
+
+corpus=Corpus(VectorSource(txt))
+
+#corpus=tm_map(corpus,removePunctuation)
+
+corpus=tm_map(corpus,removeWords,stopwords("english"))
+
+corpus <- tm_map(corpus, PlainTextDocument)
+
+
+#creating the document term matrix
+dtm = DocumentTermMatrix(corpus)
+dtm
+
+#just to show that tf-idf is working
+getFrequencyOfTermsInMatrix(as.matrix(dtm))
+
+
+
+#removing the sparse terms from the dtm
+sparseDtm=removeSparseTerms(dtm,0.997)
+sparseDtm
+
+
+```
+
+Take the tf-idf weight
+global weight * term weight * document length normalization
+
+```{r}
+#take the tfidf weight..thi is the global weight
+#dtm_tfxidf <- weightTfIdf(dtm,normalize = FALSE)
+#dtm_tfxidf
+#m <- as.matrix(dtm_tfxidf)
+#m<-log2(1+log2(m+1))
+
+
+dtm_tfidf<-myWeightTfIDf(as.matrix(dtm))
+m=dtm_tfidf
+#rownames(m) <- 1:nrow(m)
+rownames(m)<-subcases$sno
+#colnames(m)<-subcases$sno
+
+
+#this is the way to check the frequency or the tf-idf value of any term
+#getFrequencyForTerm("abrasion",m)
+
+#apply the transformation for the terms ..I guess this should be on the original dtm
+#and it should be idf*tf*normaldoc
+
+#log2(1+log2(as.matrix(dtm)+1))*dtm_tfxidf
+
+
+
+#get the normalize lengths of the vectors. 
+docNormalizedLengths=norm_eucl(m)
+
+indexesToRemove=which(docNormalizedLengths==0)
+if(length(indexesToRemove)>0)
+  m=m[-c(indexesToRemove),]
+
+#applying clustering to n=2000 documents
+nDocs=2000
+fin=m[1:nDocs,]
+
+#get the normalized vector with tf-idf * term weight * document lenght
+input <- fin/norm_eucl(fin)
+
+rownames(input)<-subcases$sno[1:nDocs]
+#need to remove the words that can highjack the frequency
+#table(m[,"valve"])
+#formaula to get the percentage of documents this word appears, the histogram of distrubtion that 
+#is how many times the value of this term is like this
+#hist(m[,"valve"])
+
+#getTermWeightDistributionInMatrix("valve",m)
+
+#getFrequencyOfTermsInMatrix(m)
+
+
+#check how many clusters should be created
+mydata <- input
+wss <- (nrow(mydata)-1)*sum(apply(mydata,2,var))
+  for (i in 2:15) wss[i] <- sum(kmeans(mydata,
+                                       centers=i)$withinss)
+plot(1:15, wss, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares")
+
+#percent drop
+percentDrop=rep(0,14)
+for(i in 1:14)
+{
+  percentDrop[i]=((wss[i+1]-wss[i])/wss[i])*100  
+}
+  
+
+
+#another way to find the number of clusters
+#library(fpc)
+#pamk.best <- pamk(input)
+
+
+
+
+
+```
+
+Performing the kmeans
+```{r}
+
+k=4
+
+set.seed(12345)
+result<-kmeans(input,centers = k,iter.max = 1000,nstart = 25)
+print("within ss")
+print(result$withinss)
+print("betweenss")
+print(result$betweenss)
+print("total withiness")
+print(result$tot.withinss)
+#the plot showing the cluster output
+plotcluster(input, result$cluster)
+
+
+#printing the cluster frequent words and the wordclouds
+for (i in 1:k) {
+  #i=2
+  inGroup <- which(result$cluster==i)
+  within <- fin[inGroup,]
+  if(length(inGroup)==1) within <- t(as.matrix(within))
+  out <- fin[-inGroup,]
+  words <- apply(within,2,mean) - apply(out,2,mean) #Take the difference in means for each term
+  print(c("Cluster", i), quote=F)
+  labels <- order(words, decreasing=T)[1:20] #Take the top 20 Labels
+  
+  wordsForCloud <- names(words)[labels]
+  freq <- words[labels]
+  freq=freq*100
+  print(freq)
+  freq[which(freq>50)]=50
+  wordcloud(wordsForCloud, freq,
+          random.order = FALSE,
+         colors=brewer.pal(8, "Dark2"),
+          random.color=TRUE,
+          max.words = 5000,
+          scale = c(6, .1))
+ 
+  print(names(words)[labels], quote=F)
+  print(i)
+}
+
+
+
+
+
+#to get the document distributions per cluster
+for (i in 1:k) {
+  
+  print(c("documents belonging to cluster",i))
+  print(result$cluster[result$cluster==i])
+  
+}
+
+table(result$cluster)
+
+
+
+```
+
+Vector model
+
+```{r}
+
+n=2000
+vectors=input[1:n,]
+#vectorIndexes=result$cluster[result$cluster==2]
+#vectors=input[c(vectorIndexes),]
+library(lsa)
+cosineMat=matrix(nrow=n,ncol=n)
+for(i  in 1:n){
+ # temp=vectors[i]
+  for(j in 1:n){
+    #multiply by 57.30 to get the values in the degrees
+    cosineMat[i,j]=acos(cosine(vectors[i,],vectors[j,]))*57.30
+    #if(cosineMat[i,j]<60)
+     # print(cosineMat[i,j])
+  }
+}
+#cosineMat
+
+rownames(cosineMat)<-subcases$sno[1:n]
+colnames(cosineMat)<-subcases$sno[1:n]
+
+
+
+#ssave to the file
+write.csv(cosineMat, file="cosineMat2.csv")
+
+#write the cluster infor to the file
+for(i in 1:k) 
+{
+  write(paste0(names(result$cluster[result$cluster==i]),":",i), file = "clusters.txt",append = TRUE, sep = ",")
+}
+
+
+
+#check for which the cosine values that are small... basically the documents that have been identified in the same group should have the lower cosine values
+#this is also the way to say that given this case which are athe closet to it
+#for(i in c(4,5,10,16,32,39,49,50,60,76,89,131,139,145,146,153,163)){
+for(i in 1:20)
+{
+  cat(i)
+  print(which(cosineMat[i,]<20))
+}
+
+
+library(plotrix)
+label="sd"
+
+
+#lengths=rep(100,10)
+doclengths=docNormalizedLengths[1:190]
+#posVector=c(10,11,30,40,20,50,10,20,10,10)
+posVector=cosineMat[4,]
+polar.plot(doclengths,polar.pos=posVector,
+           start=0,clockwise=TRUE,rp.type="s",
+           point.symbols=19,boxed.radial=FALSE, 
+           radial.labels="",main = label,lwd=2,line.col=4)
+
+
+
+#TODO: Print the content of the similar vectors so that we know what is the similarity and how much
+
+#to comapre with the cluster
+#todo : may be save the document similarity and then call from the database
+
+
+#library(cluster)  
+#centers=apply(result$centers,1,sum)
+#values=apply(input,1,sum)
+#plot(centers)
+#plot(c(1:100),values)
+#points(centers, col=1:3, pch=19, cex=2)
+
+#plot(iris[,1], iris[,2], col=km$cluster)
+#points(km$centers[,c(1,2)], col=1:3, pch=19, cex=2)
+
+#plotcluster(input, result$cluster)
+
+
+
+```
+
