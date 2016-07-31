@@ -1,0 +1,177 @@
+
+
+
+
+```{r}
+library(arules)
+dtm=read.csv("forJava.csv")
+#convert it to document frequency and not term frequency
+dtm=as.matrix(dtm)
+dim(dtm)
+dtm[dtm>0]=1
+#dtm=dtm[,2:513]
+rownames(dtm)=c(1:1962)
+
+
+#From itemMatrix-class {arules} documentation
+set.seed(1234)
+  
+## Generate random data and coerce data to itemMatrix.
+m <- matrix(runif(100000)>0.8, ncol=20)
+dimnames(m) <- list(NULL, paste("item", c(1:20), sep=""))
+i <- as(m, "itemMatrix")
+
+length(i)
+as(i[1:5], "list")
+
+#---------
+
+#------------------
+labels(ii[1:5], itemSep = " + ", setStart = "", setEnd = "")
+
+is <- new("itemsets", items = ii[1:30])
+inspect(is)
+
+rules <- new("rules", lhs=itemSetdiff(ii[4:6],ii[1:3]), rhs=ii[1:3],
+  quality = data.frame(support = runif(3)))
+
+#str(Titanic)
+iirules = apriori(ii[1:200])
+inspect(rules)
+
+
+
+#install.packages( "seriation", "igraph","grid","cluster","TSP","gclus", "colorspace")
+#install.packages("arulesViz")
+
+
+```
+
+epub example available in arules
+
+```{r}
+library(arules)
+data("Epub")
+Epub
+summary(Epub)
+
+year <- strftime(as.POSIXlt(transactionInfo(Epub)[["TimeStamp"]]), "%Y")
+table(year)
+
+Epub2003 <- Epub[year == "2003"]
+length(Epub2003)
+image(Epub2003)
+#see what all items are there in each transaction (5 transactions)
+inspect(Epub2003[1:5])
+
+#convert as individual list
+as(Epub2003[1:5], "list")
+
+#convert as itemm in row and trnascations in columns
+EpubTidLists <- as(Epub, "tidLists")
+EpubTidLists
+#This will tell which all transactions (documents) the particular item was part of
+as(EpubTidLists[1:3], "list")
+
+```
+
+
+```{r}
+data("AdultUCI")
+dim(AdultUCI)
+AdultUCI[1:2,]
+AdultUCI[["fnlwgt"]] <- NULL
+AdultUCI[["education-num"]] <- NULL
+
+summary(AdultUCI)
+
+#create Age into a ordinal variable
+AdultUCI[[ "age"]] <- ordered(cut(AdultUCI[[ "age"]], c(15,25,45,65,100)),labels = c("Young", "Middle-aged", "Senior", "Old"))
+
+#convert hours-per-week into ordinal
+AdultUCI[[ "hours-per-week"]] <- ordered(cut(AdultUCI[[ "hours-per-week"]],c(0,25,40,60,168)),labels = c("Part-time", "Full-time", "Over-time", "Workaholic"))
+
+#convert capital gain to ordinal
+AdultUCI[[ "capital-gain"]] <- ordered(cut(AdultUCI[[ "capital-gain"]],c(-Inf,0,median(AdultUCI[[ "capital-gain"]][AdultUCI[[ "capital-gain"]]>0]),Inf)),labels = c("None", "Low", "High"))
+
+#convert capital loss to ordinal
+AdultUCI[[ "capital-loss"]] <- ordered(cut(AdultUCI[[ "capital-loss"]],c(-Inf,0,median(AdultUCI[["capital-loss"]][AdultUCI[[ "capital-loss"]]>0]),Inf)),labels = c("none", "low", "high"))
+
+#now convert the data to transactions
+Adult <- as(AdultUCI, "transactions")
+as(Adult[1:5], "list")
+
+rules <- apriori(Adult,parameter = list(support = 0.01, confidence = 0.6))
+summary(rules)
+rulesIncomeSmall <- subset(rules, subset = rhs %in% "income=small" & lift > 1.2)
+inspect(head(rulesIncomeSmall, n = 3, by = "confidence"))
+
+```
+
+
+```{r}
+library(arules)
+dtm=read.csv("forJava.csv")
+#convert it to document frequency and not term frequency
+dtm=as.matrix(dtm)
+dim(dtm)
+dtm[dtm>0]=1
+#dtm=dtm[,2:513]
+rownames(dtm)=c(1:1962)
+
+dtmItemMatrix<-as(dtm,"transactions")
+length(dtmItemMatrix)
+as(dtmItemMatrix[1:5], "list")
+
+as(dtmItemMatrix[1:5], "matrix")
+as(dtmItemMatrix[1:5], "ngCMatrix")
+
+labels(dtmItemMatrix[1:5])
+
+#transactions column major form
+dtmTidLists <- as(dtmItemMatrix, "tidLists")
+as(dtmTidLists[1:2],"list")
+
+#the support value in a sense also finds the percentage of occurance of the variable
+#this will plot the terms which occur more than 1% in the entire corpus
+itemFrequencyPlot(dtmItemMatrix, support = 0.01, cex.names=0.8)
+
+#the number of terms we get
+length(itemFrequencyPlot(dtmItemMatrix, support = 0.02, cex.names=0.8))
+
+
+#find the frequnt terms occuring together
+fsets<- apriori(dtmItemMatrix,parameter = list(support = 0.01, confidence = 0.6,target="frequent itemsets"))
+inspect(sort(fsets))
+
+rulesFromFsets <- ruleInduction(fsets)
+inspect(rulesFromFsets)
+
+
+
+
+
+#get the rules for all the variables which have support of >0.01 and confidence of atleast 60%
+rules <- apriori(dtmItemMatrix,parameter = list(support = 0.001, confidence = 0.6))
+summary(rules)
+inspect(head(rules))
+rulesIncomeSmall <- subset(rules,support>0.01&confidence > 0.9)
+inspect(rulesIncomeSmall)
+rulesIncomeSmall.sorted <- sort(rulesIncomeSmall, by="lift")
+
+
+rulesIncomeSmall.sorted =rulesIncomeSmall.sorted [1:100]
+
+subset.matrix <- is.subset(rulesIncomeSmall.sorted, rulesIncomeSmall.sorted)
+subset.matrix[lower.tri(subset.matrix, diag=T)] <- NA
+redundant <- colSums(subset.matrix, na.rm=T) >= 1
+which(redundant)
+
+rulesIncomeSmall.pruned <- rulesIncomeSmall.sorted[!redundant]
+inspect(rulesIncomeSmall.pruned)
+
+
+inspect(head(rulesIncomeSmall.sorted ,n=100))
+
+```
+
